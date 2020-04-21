@@ -1,0 +1,113 @@
+{{- if not .Values.elasticsearch.external.url }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-client
+  labels:
+{{- include "logging.labels" . | indent 2}}
+    node: es
+spec:
+  selector:
+    matchLabels:
+{{- include "logging.metadata.labels" . | indent 4 }}
+      type: client
+      node: es        
+  replicas: {{ .Values.client.replicas }}
+  template:
+    metadata:
+      labels:
+{{- include "logging.metadata.labels" . | indent 6 }}
+        type: client
+        node: es
+    spec:
+      {{ with .Values.client.affinity -}}     
+      affinity:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{ with .Values.client.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+      {{ end }}
+      serviceAccountName: {{ .Release.Name }}-priv
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - image: {{ .Values.repository }}/elasticsearch/elasticsearch-oss:{{ .Values.app_version }}
+        name: main
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "mv /usr/share/elasticsearch/config/elasticsearch.yml /usr/share/elasticsearch/config/elasticsearch.yml_orig && ln -s /elasticsearch_config/elasticsearch.yml /usr/share/elasticsearch/config/elasticsearch.yml"]
+        resources:
+          # need more cpu upon initialization, therefore burstable class
+{{ toYaml .Values.client.resources | indent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health?local=true
+            port: 9200
+          initialDelaySeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /_cluster/health?wait_for_status=yellow
+            port: 9200
+          initialDelaySeconds: 90
+        ports:
+        - containerPort: 9300
+          name: transport
+          protocol: TCP
+        - containerPort: 9200
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - name: elasticsearch
+          mountPath: /elasticsearch_config
+        - name: es-data
+          mountPath: /data
+{{- if .Values.elk.snapshot.enabled }}
+        - name: es-snapshot
+          mountPath: /snapshot
+{{- end }}          
+        env:
+        - name: ES_JAVA_OPTS
+          value: "-Xms{{ .Values.client.heap_size }} -Xmx{{ .Values.client.heap_size }} {{ .Values.elk.additional_jvm_params }}"
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_MASTER
+          value: "false"
+        - name: NODE_DATA
+          value: "false"
+        - name: NODE_INGEST
+          value: "false"
+      # Elasticsearch requires vm.max_map_count to be at least 262144.
+      # If your OS already sets up this number to a higher value, feel free
+      # to remove this init container.
+      initContainers:
+      - image: {{ .Values.init_container_image.registry }}{{ .Values.init_container_image.repository }}:{{ .Values.init_container_image.tag }}
+        command: ["sh", "-c", "while ! nc -z -w 2 {{ .Release.Name}}-data 9200; do echo \"retry connect {{ .Release.Name}}-data:9200\" && sleep 2; done && /sbin/sysctl -w vm.max_map_count=262144 || true && chown 1000:1000  /data && if [ -d /snapshot ]; then chown 1000:1000 /snapshot ; fi"]
+        name: init
+        volumeMounts:
+        - name: es-data
+          mountPath: /data
+{{- if .Values.elk.snapshot.enabled }}
+        - name: es-snapshot
+          mountPath: /snapshot
+{{- end }}           
+        securityContext:
+          runAsUser: 0
+          privileged: true  
+      volumes:
+      - name: elasticsearch
+        configMap:
+          name: {{ .Release.Name }}
+{{- if .Values.elk.snapshot.enabled }}
+      - name: es-snapshot
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-snapshot-pvc
+{{- end }}          
+      - name: es-data
+        emptyDir: {}
+{{- end }}

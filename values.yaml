@@ -1,0 +1,156 @@
+# Default values for kubernetes-logging.
+
+cluster_name: logging
+
+#Version of ELK stack (logstash, filebeat, journalbeat ...)
+app_version: 7.6.2
+repository: docker.elastic.co
+
+imagePullSecrets: []
+
+init_container_image:
+  registry: 
+  repository: nickytd/utils
+  tag: latest
+
+es_curator_image:
+  registry: 
+  repository: nickytd/es-curator
+  tag: 5.8  
+
+#default storage class used by statefulsets (kafka, elk-data nodes, etc)
+#if no storage_class is defined the
+storage_class:
+
+# minimum master nodes
+minimum_master_nodes: 1
+
+elk:
+  snapshot:
+    enabled: false
+    storage_class:
+    size: 5Gi
+  index_shards: 1
+  index_replicas: 0
+  index:
+    - containers
+    - journals
+  additional_jvm_params: "-Djava.net.preferIPv4Stack=true -XshowSettings:properties -XshowSettings:vm -XshowSettings:system"
+
+master:
+  minimum_nodes: 1
+  replicas: 1
+  storage: "1Gi"
+  heap_size: "512m"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "512Mi"
+  tolerations: []
+  affinity: {}    
+
+client:
+  replicas: 1
+  heap_size: "512m"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "512Mi"
+  host: minikube
+  ingress:
+    path: /
+    secret_name: null
+    enabled: false
+    annotations: {}
+  tolerations: []
+  affinity: {}
+
+data:
+  replicas: 1
+  heap_size: "1g"
+  storage: "5Gi"
+  storage_class:
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "1Gi"
+  tolerations: []
+  affinity: {} 
+  
+kibana:
+  #when external url is specified it determines usage of an external kibana instance. 
+  #in such case only jobs creating index templates and kibana objects is executed
+  #in addition to the url username and password can be specified in case of authentication requirements
+  external:
+    url: ""
+    user: ""
+    password: ""  
+  replicas: 1
+  service_type: "ClusterIP"
+  ingress:
+    path: /
+    enabled: false
+    annotations: {}
+  index: containers,journals
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "1Gi"
+  tolerations: []
+  affinity: {}    
+
+logstash_indexer:
+  beats: true
+  replicas: 1
+  heap_size: "512m"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "512Mi"
+  tolerations: []
+  affinity: {}       
+
+kafka:
+  replicas: 1
+  tag: "2.12-2.4.0"
+  heap_size: "1g"
+  storage: "1Gi"
+  topics:
+    config: "retention.bytes=52428800,retention.ms=300000,message.timestamp.difference.max.ms=300000,segment.bytes=2097152,message.timestamp.type=LogAppendTime"
+    name: ["containers","journals"]
+    replication_factor: 1
+    partitions: 2
+  tolerations: []
+  affinity: {}   
+
+zookeeper:
+  replicas: 1
+  tag: "3.4.14"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "1Gi"
+  tolerations: []
+  affinity: {}   
+
+journalbeat:
+  enabled: true
+  #minikube
+  path: /var/run/log/journal
+  #in gerenal it is
+  #path: /var/log/journal
+  tolerations: []
+  affinity: {}
+
+filebeat:
+  tolerations: []
+  affinity: {}  
+
+elasticsearch:
+  #when external url is specified it determines usage of an external elasticsearch instance. 
+  #in addition to the url username and password can be specified in case of authentication requirements
+  external:
+    url: ""
+    user: ""
+    password: "" 
+ 

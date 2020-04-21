@@ -1,0 +1,123 @@
+{{- if not .Values.elasticsearch.external.url }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-data
+  labels:
+{{- include "logging.labels" . | indent 2}}
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  serviceName: {{ .Release.Name }}-data
+  replicas: {{ .Values.data.replicas }}
+  selector:
+    matchLabels:
+{{- include "logging.metadata.labels" . | indent 4}}
+      node: es
+      type: data
+  template:
+    metadata:
+      labels:
+        node: es
+        type: data
+{{- include "logging.metadata.labels" . | indent 6}}
+        kubernetes.io/cluster-service: "true"
+    spec:
+      priorityClassName: logging-critical
+      {{ with .Values.data.affinity -}}     
+      affinity:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{ with .Values.data.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+      {{ end }}
+      serviceAccountName: {{ .Release.Name }}-priv
+      priorityClassName: logging-critical
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - image: {{ .Values.repository }}/elasticsearch/elasticsearch-oss:{{ .Values.app_version }}
+        name: es
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "mv /usr/share/elasticsearch/config/elasticsearch.yml /usr/share/elasticsearch/config/elasticsearch.yml_orig && ln -s /elasticsearch_config/elasticsearch.yml /usr/share/elasticsearch/config/elasticsearch.yml"]
+        resources:
+          # need more cpu upon initialization, therefore burstable class
+{{ toYaml .Values.data.resources | indent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health?local=true
+            port: 9200
+          initialDelaySeconds: 5
+        ports:
+        - containerPort: 9300
+          name: transport
+          protocol: TCP
+        - containerPort: 9200
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - name: es-data
+          mountPath: /data
+{{- if .Values.elk.snapshot.enabled }}
+        - name: es-snapshot
+          mountPath: /snapshot
+{{- end }}          
+        - name: elasticsearch
+          mountPath: /elasticsearch_config
+        env:
+        - name: "NAMESPACE"
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: "MINIMUM_MASTER_NODES"
+          value: {{ .Values.master.minimum_nodes | quote }}
+        - name: ES_JAVA_OPTS
+          value: "-Xms{{ .Values.data.heap_size }} -Xmx{{ .Values.data.heap_size }} {{ .Values.elk.additional_jvm_params }}"
+        - name: NODE_MASTER
+          value: "false"  
+      volumes:
+      - name: elasticsearch
+        configMap:
+          name: {{ .Release.Name }}
+{{- if .Values.elk.snapshot.enabled }}
+      - name: es-snapshot
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-snapshot-pvc
+{{- end }}    
+      # Elasticsearch requires vm.max_map_count to be at least 262144.
+      # If your OS already sets up this number to a higher value, feel free
+      # to remove this init container.
+      initContainers:
+      - image: {{ .Values.init_container_image.registry }}{{ .Values.init_container_image.repository }}:{{ .Values.init_container_image.tag }}
+        command: ["sh", "-c", "/sbin/sysctl -w vm.max_map_count=262144 || true && chown 1000:1000  /data && if [ -d /snapshot ]; then chown 1000:1000 /snapshot ; fi"]
+        name: init
+        volumeMounts:
+        - name: es-data
+          mountPath: /data
+{{- if .Values.elk.snapshot.enabled }}
+        - name: es-snapshot
+          mountPath: /snapshot
+{{- end }}           
+        securityContext:
+          runAsUser: 0
+          privileged: true    
+  volumeClaimTemplates:
+  - metadata:
+      name: es-data
+    spec:
+      {{- if .Values.data.storage_class }}
+      storageClassName: {{ .Values.data.storage_class | quote }}
+      {{ else }}
+      storageClassName: {{ .Values.storage_class | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.data.storage }}
+      accessModes:
+      - ReadWriteOnce
+{{- end }}

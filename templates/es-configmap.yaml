@@ -1,0 +1,39 @@
+{{- if not .Values.elasticsearch.external.url }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+{{- include "logging.labels" . | indent 2}}
+data:
+  elasticsearch.yml: |-
+    cluster.name: {{ .Values.cluster_name | quote }}
+
+    cluster.initial_master_nodes:
+    {{- range $i, $e := until (int .Values.master.minimum_nodes) }}
+       - {{printf "%s-master-%d" $.Release.Name $i }}
+    {{- end }}
+
+    path.data: /data
+
+{{- if .Values.elk.snapshot.enabled }}    
+    path.repo: /snapshot
+{{- end }}    
+
+    network.host: 0.0.0.0
+
+    discovery.zen.minimum_master_nodes: {{ .Values.master.minimum_nodes }}
+
+    discovery.zen.ping.unicast.hosts: {{ template "logging.fullname" . }}-vip
+
+    node.master: ${NODE_MASTER:true}
+    node.data: ${NODE_DATA:true}
+    node.ingest: ${NODE_INGEST:true}
+
+    node.name: ${HOSTNAME}
+
+    thread_pool.write.queue_size: 1000
+    thread_pool.search.queue_size: 1000
+    thread_pool.get.queue_size: 1000
+    thread_pool.analyze.queue_size: 100
+{{- end }}

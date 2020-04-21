@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-kibana-create-index-pattern
+  labels:
+{{- include "logging.labels" . | indent 2}}
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+      - image: {{ .Values.init_container_image.registry }}{{ .Values.init_container_image.repository }}:{{ .Values.init_container_image.tag }}
+        {{- if .Values.kibana.external.url }}
+        command: ["sh", "-xc", "while (true) do if [ $(curl -s -o /dev/null -w \"%{http_code}\" {{ if .Values.kibana.external.user }} --user {{ .Values.kibana.external.user }}:{{ .Values.kibana.external.password }} {{ end }} {{ .Values.kibana.external.url }}/status) = 200 ]; then echo \"ready\"; exit 0; fi; echo \"retry pinging kibana\"; sleep 2; done"]
+        {{ else }}
+        command: ["sh", "-xc", "while (true) do if [ $(curl -s -o /dev/null -w \"%{http_code}\" http://{{ .Release.Name }}-kibana:5601/status) = 200 ]; then echo \"ready\"; exit 0; fi; echo \"retry pinging kibana\"; sleep 2; done"]
+        {{- end }}
+        name: init
+      containers:
+      - name: main
+        image: {{ .Values.repository }}/kibana/kibana-oss:{{ .Values.app_version }}
+        {{- if .Values.kibana.external.url }}
+        command: ["bash","/tmp/create_index_pattern.sh", "{{ .Values.kibana.external.url }}", "{{ $.Values.kibana.index }}", "{{ .Values.kibana.external.user }}", "{{ .Values.kibana.external.password }}"]
+        {{ else }}
+        command: ["bash","/tmp/create_index_pattern.sh", "http://{{ .Release.Name }}-kibana:5601", "{{ $.Values.kibana.index }}"]
+        {{- end }}
+        volumeMounts:
+        - mountPath: "/tmp/create_index_pattern.sh"
+          subPath: create_index_pattern.sh
+          name: config
+        - mountPath: "/tmp/saved_objects"
+          name: saved-objects
+      volumes:
+      - name: config
+        configMap:
+          name: {{ .Release.Name }}-kibana
+      - name: saved-objects
+        configMap:    
+          name: {{ .Release.Name }}-kibana-saved-objects

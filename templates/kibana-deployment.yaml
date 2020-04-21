@@ -1,0 +1,70 @@
+{{- if not .Values.kibana.external.url }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-kibana
+  labels:
+{{- include "logging.labels" . | indent 2}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+{{- include "logging.metadata.labels" . | indent 4}}
+      type: kibana
+  template:
+    metadata:
+      labels:
+{{- include "logging.metadata.labels" . | indent 6}}
+        type: kibana
+    spec:
+      {{ with .Values.kibana.affinity -}}     
+      affinity:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{ with .Values.kibana.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+      {{ end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+      - name: init
+        imagePullPolicy: Always
+        image: {{ .Values.init_container_image.registry }}{{ .Values.init_container_image.repository }}:{{ .Values.init_container_image.tag }}
+        command: ["sh", "-c", "/init.sh {{ .Release.Name}}-client 9200"]
+        volumeMounts:
+        - mountPath: "/init.sh"
+          subPath: init.sh
+          name: init
+      containers: 
+      - name: kibana
+        image: {{ .Values.repository }}/kibana/kibana-oss:{{ .Values.app_version }}
+        resources:
+          # need more cpu upon initialization, therefore burstable class
+{{ toYaml .Values.kibana.resources | indent 10 }}
+        env:
+          - name: ELASTICSEARCH_URL
+            value: http://{{ .Release.Name}}-client.{{ .Release.Namespace }}:9200
+{{ if .Values.kibana.server_base_path }}            
+          - name: SERVER_BASEPATH
+            value: {{ .Values.kibana.server_base_path }}  
+{{ end }}              
+        ports:
+        - containerPort: 5601
+          name: ui
+          protocol: TCP
+        volumeMounts:
+        - mountPath: "/opt/kibana/config/kibana.yml"
+          subPath: kibana.yml
+          name: config
+      volumes:
+      - name: config
+        configMap:
+          name: {{ .Release.Name }}-kibana
+      - name: init
+        configMap:
+          name: {{ .Release.Name}}-init
+          defaultMode: 0755    
+{{- end }}

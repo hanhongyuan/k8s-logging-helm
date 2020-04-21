@@ -1,0 +1,21 @@
+{{- if not .Values.elasticsearch.external.url }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "logging.fullname" . }}-vip
+  labels:
+{{- include "logging.labels" . | indent 2}}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  sessionAffinity: None
+  selector:
+{{- include "logging.metadata.labels" . | indent 2}}
+    node: es
+  ports:
+  - name: transport
+    port: 9300
+    targetPort: transport
+    protocol: TCP
+{{- end }}

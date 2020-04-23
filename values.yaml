@@ -100,6 +100,7 @@ kibana:
   affinity: {}    
 
 logstash_indexer:
+  # if beats is set to false, then kafka is used as an ingestion point
   beats: true
   replicas: 1
   heap_size: "512m"

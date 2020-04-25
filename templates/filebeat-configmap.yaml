@@ -14,7 +14,6 @@ data:
     - type: container
       paths:
         - '/var/lib/docker/containers/*/*-json.log'
-      #tail_files: true
       multiline.pattern: '^[[:space:]]'
       multiline.negate: false
       multiline.match: after

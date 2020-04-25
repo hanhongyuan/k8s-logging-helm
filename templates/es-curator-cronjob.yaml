@@ -12,7 +12,7 @@ data:
       1:
         action: delete_indices
         description: >-
-          Delete indices older than 7 days (based on index creation_date).
+          Delete indices older than 2 days (based on index creation_date).
           Ignore the error if the filter does not result in an
           actionable list of indices (ignore_empty_list) and exit cleanly.
         options:
@@ -26,7 +26,7 @@ data:
           direction: older
           timestring: '%Y.%m.%d'
           unit: days
-          unit_count: 7
+          unit_count: 2
           exclude:
         - filtertype: kibana
           exclude: True
@@ -61,7 +61,8 @@ metadata:
   labels:
 {{- include "logging.labels" . | indent 2}}
 spec:
-  schedule: "0 11 1,15 * *"
+  # execute each day at 1am
+  schedule: "0 1 * * *"
   jobTemplate:
     spec:
       template:
